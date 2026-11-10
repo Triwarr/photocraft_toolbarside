@@ -1,0 +1,21 @@
+[package]
+name = "photocraft-script-js"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Runs .js/.jsx scripts against a PhotoCraft session (Boa engine, deterministic replay for modal pauses)."
+
+[lints]
+workspace = true
+
+[dependencies]
+# Pinned exactly: the pause mechanism and the replay tape depend on 0.22.0 behaviour (see src/abort.rs).
+boa_engine = { version = "=0.22.0", default-features = false, features = ["annex-b"] }
+boa_gc = "=0.22.0"
+serde_json = { workspace = true }
+web-time = { workspace = true }
+photocraft-engine = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Browser clock and randomness for the engine on the web build.
+boa_engine = { version = "=0.22.0", default-features = false, features = ["annex-b", "js"] }
