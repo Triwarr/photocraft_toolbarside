@@ -134,7 +134,9 @@ impl Runner {
         if let Some(modal) = self.pending() {
             return Step::Paused(modal);
         }
+        self.shared.borrow_mut().budget.resume();
         let step = self.attempt();
+        self.shared.borrow_mut().budget.pause();
         if !matches!(step, Step::Paused(_)) {
             self.finished = Some(step.clone());
         }

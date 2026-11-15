@@ -221,3 +221,27 @@ fn paste_into_keeps_one_step() {
     h.execute("layer.setProps", json!({"layer": id, "opacity": 0.25})).unwrap();
     assert_eq!(history_len(&mut s.borrow_mut()), before + 1);
 }
+
+#[test]
+fn time_at_a_dialog_does_not_count_against_the_limit() {
+    let p = Probe::default();
+    let lines = p.lines.clone();
+    let budget = WallClock::new(Duration::from_millis(200), 1);
+    let mut r = Runner::new("alert('a'); $.writeln('after');", Box::new(p), Box::new(budget), RunOptions::default()).unwrap();
+    assert!(matches!(r.step(), Step::Paused(_)));
+    std::thread::sleep(Duration::from_millis(400));
+    r.answer(Value::Null).unwrap();
+    assert_eq!(r.step(), Step::Done);
+    assert_eq!(*lines.borrow(), ["after"]);
+}
+
+#[test]
+fn fifty_alerts_fit_under_a_time_limit() {
+    let src = "for (var i = 0; i < 50; i++) { alert(i); }";
+    let budget = WallClock::new(Duration::from_secs(2), 1);
+    let mut r = Runner::new(src, Box::new(Probe::default()), Box::new(budget), RunOptions::default()).unwrap();
+    while let Step::Paused(_) = r.step() {
+        r.answer(Value::Null).unwrap();
+    }
+    assert_eq!(r.step(), Step::Done);
+}
