@@ -45,10 +45,15 @@ fn begin(ctx: &mut Context, call: Call) -> JsResult<Result<Outcome, usize>> {
     let s = shared(ctx)?;
     let begun = {
         let mut st = s.borrow_mut();
-        if !st.budget.charge() { None } else { Some(st.tape.begin(call)) }
+        // A stop the script swallowed (only possible if the abort ever became catchable) must not
+        // reach the host: every later call stops again.
+        if st.stop.is_some() || !st.budget.charge() { None } else { Some(st.tape.begin(call)) }
     };
     match begun {
-        None => Err(stop(ctx, Stop::TimeLimit)),
+        None => {
+            let why = s.borrow_mut().stop.take().unwrap_or(Stop::TimeLimit);
+            Err(stop(ctx, why))
+        }
         Some(Err(divergence)) => Err(stop(ctx, Stop::Fault(divergence))),
         Some(Ok(Begin::Replay(o))) => Ok(Ok(o)),
         Some(Ok(Begin::Live(at))) => Ok(Err(at)),

@@ -245,3 +245,18 @@ fn fifty_alerts_fit_under_a_time_limit() {
     }
     assert_eq!(r.step(), Step::Done);
 }
+
+/// R1's check: many aborts, each in a fresh context, with a frame full of locals. Slow in debug
+/// builds; run with `--release -- --ignored`.
+#[test]
+#[ignore = "slow: run with --release -- --ignored"]
+fn ten_thousand_aborts_with_many_locals() {
+    let locals: String = (0..256).map(|i| format!("var v{i} = {i};")).collect();
+    let src = format!("function f() {{ {locals} alert(v255); }} f();");
+    let started = std::time::Instant::now();
+    for _ in 0..10_000 {
+        let (mut r, _, _) = probe_run(&src, RunOptions::default());
+        assert!(matches!(r.step(), Step::Paused(_)));
+    }
+    eprintln!("10k aborts: {:?}", started.elapsed());
+}

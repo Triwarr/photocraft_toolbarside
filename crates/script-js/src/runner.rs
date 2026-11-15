@@ -1,6 +1,6 @@
 //! One script run: attempts, pauses at modal dialogs, and the final result.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use boa_engine::context::time::{Clock, JsInstant, StdClock};
@@ -72,6 +72,9 @@ pub(crate) type Shared = Rc<RefCell<State>>;
 struct TapeClock {
     shared: Shared,
     monotonic: StdClock,
+    /// Set when the clock was read while the run state was busy; the attempt then faults
+    /// instead of replaying with an untaped time.
+    fault: Rc<Cell<bool>>,
 }
 
 impl Clock for TapeClock {
@@ -83,7 +86,10 @@ impl Clock for TapeClock {
         let live = || self.monotonic.system_time_millis();
         match self.shared.try_borrow_mut() {
             Ok(mut s) => s.tape.clock(live),
-            Err(_) => live(),
+            Err(_) => {
+                self.fault.set(true);
+                0
+            }
         }
     }
 }
@@ -171,7 +177,11 @@ impl Runner {
                 return Step::Failed(time_limit_message());
             }
         }
-        let result = self.fresh_context().and_then(|mut ctx| ctx.eval(Source::from_bytes(&self.source)).map(drop));
+        let fault = Rc::new(Cell::new(false));
+        let result = self.fresh_context(&fault).and_then(|mut ctx| ctx.eval(Source::from_bytes(&self.source)).map(drop));
+        if fault.get() {
+            return Step::Failed("internal error: the clock was read while the script host was busy".into());
+        }
         let mut s = self.shared.borrow_mut();
         match s.stop.take() {
             Some(Stop::Paused) => {
@@ -190,8 +200,8 @@ impl Runner {
         }
     }
 
-    fn fresh_context(&self) -> boa_engine::JsResult<Context> {
-        let clock = Rc::new(TapeClock { shared: self.shared.clone(), monotonic: StdClock::new() });
+    fn fresh_context(&self, fault: &Rc<Cell<bool>>) -> boa_engine::JsResult<Context> {
+        let clock = Rc::new(TapeClock { shared: self.shared.clone(), monotonic: StdClock::new(), fault: fault.clone() });
         let mut ctx = Context::builder().clock(clock).build()?;
         ctx.runtime_limits_mut().set_loop_iteration_limit(LOOP_LIMIT);
         ctx.runtime_limits_mut().set_recursion_limit(RECURSION_LIMIT);
